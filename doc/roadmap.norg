@@ -150,4 +150,5 @@ here. For a better viewing experience, we recommend reading it opening it from `
       - [ ] Add support for sequential projects (see `:h neorg-gtd-projects`)
       - [ ] Add support for the daily and weekly review (see `:h neorg-gtd-reflect`)
 #comment
-vim:tw=100:ft=norg:norl:
+DIY_again
+DIY_2  vim:filetype=help:syntax=help:

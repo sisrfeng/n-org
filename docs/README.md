@@ -20,8 +20,10 @@ Oh no, did something break? See [here](/docs/CONTRIBUTING.md#reporting-a-bug-or-
 All the things you will need to know are described [right here](/docs/CONTRIBUTING.md#formatting-rules). So go ahead and make something already! :P
 
 # Creating Modules
-Now's the fun part, you gotta learn how the module system works and how to program for it! A mini walkthrough is available in the [Creating Modules](https://github.com/vhyrro/neorg/wiki/Creating-Modules) document
-in the wiki.
+Now's the fun part,
+you gotta learn how the module system works and how to program for it! A mini walkthrough is available in the [Creating Modules](https://github.com/vhyrro/neorg/wiki/Creating-Modules) document  in the wiki.
 
 # The Future
-Want to know what's brewing up behind the scenes? Take a look at the [written roadmap](/doc/roadmap.norg) (or do `:h neorg-roadmap` in neovim) to see where we're headed!
+Want to know what's brewing up behind the scenes?
+Take a look at the [written roadmap](/doc/roadmap.norg)
+(or do `:h neorg-roadmap` in neovim) to see where we're headed!
