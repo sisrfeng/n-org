@@ -188,13 +188,11 @@ You can install it through your favorite plugin manager:
 
 ###### _Be sure to have [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) installed on your system for this step!_
 Neorg will automatically attempt to install the parsers for you upon entering a `.norg` file if you have `core.defaults` loaded.
-A command is also exposed to
-reinstall and/or update these parsers: `:Neorg sync-parsers`.
+A command is also exposed to reinstall and/or update these parsers: `:Neorg sync-parsers`.
 
-Note that the `:Neorg sync-parsers` command is only available when in a `.norg` file,
-and the installation isn't reproducible.
-To make it permanent,
-    you want to alter your treesitter configuration a little: 
+Note that the `:Neorg sync-parsers` command is only available when in a `.norg` file, and the installation isn't reproducible.
+To make it permanent, you want to alter your treesitter configuration a little:
+
 ```lua
 require('nvim-treesitter.configs').setup {
     ensure_installed = { "norg", --[[ other parsers you would wish to have ]] },
@@ -205,29 +203,29 @@ require('nvim-treesitter.configs').setup {
 ```
 
 NOTE: Putting `"norg_meta"` into your `ensure_installed` table may trigger unintended errors.
-This is because `norg_meta` isn't in the native `nvim-treesitter` repositories,
-and the parser is  only defined while using Neorg.
-This is why using `:Neorg sync-parsers` is recommended.
+This is because `norg_meta` isn't in the native `nvim-treesitter` repositories, and the parser is
+only defined while using Neorg. This is why using `:Neorg sync-parsers` is recommended.
 
 ### Troubleshooting Treesitter
 - Not using packer? Make sure that Neorg's `setup()` gets called after `nvim-treesitter`'s setup.
+- If on MacOS, ensure that the `CC` environment variable points to a compiler that has C++14 support.
+  You can run Neovim like so: `CC=/path/to/newer/compiler nvim -c
+  "TSInstallSync norg"` in your shell of choice
+  to install the Neorg parser with a newer compiler. You may also want to export the `CC` variable in general:
+  `export CC=/path/to/newer/compiler`.
 
 ## 📦 Setup
 
-By default,
-Neorg does nothing,
-and gives you nothing.
-You must tell it what you care about!
-
+You've got the basic stuff out the way now, but wait! That's not all. You've installed Neorg - great! Now you have to configure it.
+By default, Neorg does nothing, and gives you nothing. You must tell it what you care about!
 
 ### Default modules
 
-Neorg runs on _modules_,
-Each module provides a single bit of functionality - they can then be stacked together to form the entire Neorg environment.
+Neorg runs on _modules_, which are discussed and explained in more depth later on.
+Each module provides a single bit of functionality - they can then be stacked together to form
+the entire Neorg environment.
 
-
-The most common module you'll find is the `core.defaults` module,
-which is basically a "load all features" switch.
+The most common module you'll find is the `core.defaults` module, which is basically a "load all features" switch.
 It gives you the full experience out of the box.
 
 The code snippet to enable all default modules is very straightforward:
@@ -244,15 +242,14 @@ You can see [here](https://github.com/nvim-neorg/neorg/wiki#default-modules) whi
 
 ## ⚙ Usage
 
-We recommend reading the [spec](docs/NFF-0.1-spec.md)
-and familiarizing yourself with the new format.
-You can view a summary directly in your neovim instance by running `:h neorg`
- 
+We recommend reading the [spec](docs/NFF-0.1-spec.md) and familiarizing yourself with the new format.
+You can view a summary directly in your neovim instance by running `:h neorg` if you don't like reading a lot!
+
 Afterwards it's as simple as hopping into a `.norg` file and typing away.
 
-A good first step is to require the `core.norg.dirman` module,
-it'll help you manage Neorg workspaces.
-Workspaces are basically isolated directories that you can jump between:  
+A good first step is to require the `core.norg.dirman` module, it'll help you manage Neorg workspaces.
+Workspaces are basically isolated directories that you can jump between:
+
 ```lua
 require('neorg').setup {
     load = {
@@ -269,20 +266,12 @@ require('neorg').setup {
 }
 ```
 
-Changing workspaces is easy,
-just do `:Neorg workspace work`,
-where `work` is the name of your workspace.
-Note that `:Neorg` is only available when the Neorg environment is loaded,
-i.e.
-when you're in a `.norg` file or
-have loaded a `.norg` file already in your Neovim session.
+Changing workspaces is easy, just do `:Neorg workspace work`, where `work` is the name of your workspace.
+Note that `:Neorg` is only available when the Neorg environment is loaded, i.e. when you're
+in a `.norg` file or have loaded a `.norg` file already in your Neovim session.
 
-
-If the Neorg environment isn't loaded you'll find a `:NeorgStart` command which
-will launch Neorg and
-pop you in to your last (or only)
-workspace.
-
+If the Neorg environment isn't loaded you'll find a `:NeorgStart` command which will launch Neorg and pop
+you in to your last (or only) workspace.
 
 #### It works, cool! What are the next steps?
 
@@ -293,23 +282,19 @@ We recommend you add some core modules that can greatly improve your experience,
 
 Setting these up is discussed in the wiki, so be sure to check there!
 
-
-The rest of this README will be additional information
-  
+**You're now basically set**! The rest of this README will be additional information, so keep reading
+if you care about what makes Neorg tick, or you want to genuinely get good at using it.
 
 ## 🥡 Modules
 
-As you saw previously,
-we loaded `core.defaults` and recommended that you load `core.norg.dirman`.
-    
-Modules are basically isolated bits of code that provide a specific subset of features.
-They can be docked into the environment at any time and
-can be essentially stacked together like lego bricks!
-They can bind themselves to events and  callbacks and
-communicate with each other.
+As you saw previously, we loaded `core.defaults` and recommended that you load `core.norg.dirman`.
+As you probably know those are modules. But what are they, exactly?
 
+Modules are basically isolated bits of code that provide a specific subset of features. They can be docked into
+the environment at any time and can be essentially stacked together like lego bricks!
+They can bind themselves to events and callbacks and communicate with each other.
 
-To require a module
+To require a module, just do:
 
 ```lua
 require('neorg').setup {
@@ -327,20 +312,13 @@ require('neorg').setup {
 }
 ```
 
-As always,
-for a little more info you can consult the wiki page [here](https://github.com/nvim-neorg/neorg/wiki/Installation#the-concept-of-modules).
-To know which
-configurations are provided by
-default for a module,
-    just click on their link:
-    you'll go to the module page in the [wiki](https://github.com/nvim-neorg/neorg/wiki).
-
+As always, for a little more info you can consult the wiki page [here](https://github.com/nvim-neorg/neorg/wiki/Installation#the-concept-of-modules).
+To know which configurations are provided by default for a module, just click on their link: you'll go to the module page in the [wiki](https://github.com/nvim-neorg/neorg/wiki).
 
 ### Core Modules
 
-Here is a list of core modules that aren't part of `core.defaults` and can be added individually by
-you.
-
+Here is a list of core modules that aren't part of `core.defaults` and can be added
+individually by you.
 
 Feel free to try by adding them to your Neorg setup.
 
@@ -364,8 +342,7 @@ Feel free to try by adding them to your Neorg setup.
 ### External Modules
 
 Users can contribute and create their own modules for Neorg.
-To use them,
-just download the plugin with your package manager, for instance with Packer:
+To use them, just download the plugin with your package manager, for instance with Packer:
 
 ```lua
 use {
@@ -374,8 +351,7 @@ use {
 }
 ```
 
-After that it's as easy as
-loading  normally the module  it exposes
+After that it's as easy as loading the module it exposes normally:
 
 ```lua
 require('neorg').setup {
@@ -405,77 +381,68 @@ If you ever end up making a module for Neorg feel free to make a pull request an
 
 Our goals are fairly simple:
 
-1. Revise the org format:
-simple, extensible, unambiguous.
-Will make you feel right at home.
-Alternate markup formats have several flaws,
-but the most  notable one is the requirement for **complex parsers**.
-   I really advise checking [some writeups](https://talk.commonmark.org/t/beyond-markdown/2787)
-   out on how bad it can get at times.
-   What if we told you it's possible to alleviate those problems,
-   all whilst keeping that familiar feel?
-   Enter the `.norg` file format,
-   whose [base spec](docs/NFF-0.1-spec.md) is practically complete.
-   The cross between all the best things from org and 
-                         the best things  from markdown,
-   revised and merged into one.
+1. Revise the org format: simple, extensible, unambiguous. Will make you feel right at home. Alternate markup formats have several flaws, but the most
+   notable one is the requirement for **complex parsers**.
+   I really advise checking [some writeups](https://talk.commonmark.org/t/beyond-markdown/2787) out on how bad it can get at times.
+   What if we told you it's possible to alleviate those problems, all whilst keeping that familiar feel?
+   Enter the `.norg` file format, whose [base spec](docs/NFF-0.1-spec.md) is practically complete.
+   The cross between all the best things from org and the best things from markdown, revised and merged into one.
 
-2. Keybinds that _make sense_:
-    vim's keybind philosophy is unlike any other,
-    and we want to keep that vibe.
-   Keys form a "language",
-   one that you can speak,
-   not one that you need to learn off by heart.
+2. Keybinds that _make sense_: vim's keybind philosophy is unlike any other, and we want to keep that vibe.
+   Keys form a "language", one that you can speak, not one that you need to learn off by heart.
 
-3. Infinite extensibility: no, that isn't a hyperbole.
-We mean it.
-Neorg is built upon an insanely modular and
-configurable backend - keep what you need,
-throw away what you don't care about.
-Use the defaults or change 'em.
+3. Infinite extensibility: no, that isn't a hyperbole. We mean it. Neorg is built upon an insanely modular and
+   configurable backend - keep what you need, throw away what you don't care about. Use the defaults or change 'em.
    You are in control of what code runs and what code doesn't run!
 
-4. Logic:
-everything has a reason,
-everything has logical meaning.
-If there's a feature,
-it's there because
-it's necessary,
-not because
-two people asked for it.
-If something has a more niche use case,
-it should be documented.
-
+4. Logic: everything has a reason, everything has logical meaning. If there's a feature, it's there because it's necessary, not because
+   two people asked for it.
+   If something has a more niche use case, it should be documented.
 
 ## 🗺 Roadmap
 
-We track a high-level roadmap,
-so that
-you can know what to expect.
-Just do `:h neorg-roadmap`.
-To know exactly what's being worked on,
-just check out the [repo's PRs](https://github.com/nvim-neorg/neorg/pulls).
-
+We track a high-level roadmap, so that you can know what to expect. Just do `:h neorg-roadmap`.
+To know exactly what's being worked on, just check out the [repo's PRs](https://github.com/nvim-neorg/neorg/pulls).
 
 ## 📚 FAQ
 
 <!-- TODO(vhyrro): Populate with common issues -->
 
-The wiki is the go-to place
-if you need answers to anything Neorg-related.
-Usage,
-Keybinds,
-User Callbacks,
-Modules,
-Events
-[read it](https://github.com/nvim-neorg/neorg/wiki)!
-
+The wiki is the go-to place if you need answers to anything Neorg-related. Usage, Keybinds, User Callbacks, Modules, Events?
+It's all there, so we recommend you seriously go [read it](https://github.com/nvim-neorg/neorg/wiki)!
 
 ## Contributing
 
 Have an idea? An improvement to existing functionality? Feedback in general?
 
 We seriously recommend you join our [discord](https://discord.gg/T6EgTAX7ht) to hang out and chat about your ideas,
-plus that you read the [CONTRIBUTING.md](docs/CONTRIBUTING.md)
-file for more info about developer-related stuff! 
+plus that you read the [CONTRIBUTING.md](docs/CONTRIBUTING.md) file for more info about developer-related stuff!
 
+## Credits
+
+Massive shoutouts go to all the contributors actively working on the project together to form a fantastic
+integrated workflow:
+
+- [mrossinek](https://github.com/mrossinek) - for basically being my second brain when it comes to developing new features
+  and adding new syntax elements
+- [danymat](https://github.com/danymat) - for creating the excellent GTD workflow in Neorg that we literally use internally
+  to plan new features
+
+And an extra thank you to:
+
+- [Binx](https://github.com/Binx-Codes/) - for making that gorgeous logo for free!
+- [bandithedoge](https://github.com/bandithedoge) - for converting the PNG version of the logo into SVG form
+
+## Support
+
+Love what I do? Want to see more get done faster? Want to support future projects? Any sort of support is always
+heartwarming and fuels the urge to keep going :heart:. You can show support here:
+
+- [Buy me a coffee!](https://buymeacoffee.com/vhyrro)
+- [Support me on LiberaPay](https://liberapay.com/vhyrro)
+- [Donate directly via paypal](https://paypal.me/ewaczupryna?locale.x=en_GB)
+- [Support me on Patreon](https://patreon.com/vhyrro)
+- Donate to my monero wallet: `86CXbnPLa14F458FRQFe26PRfffZTZDbUeb4NzYiHDtzcyaoMnfq1TqVU1EiBFrbKqGshFomDzxWzYX2kMvezcNu9TaKd9t`
+- Donate via bitcoin: `bc1q4ey43t9hhstzdqh8kqcllxwnqlx9lfxqqh439s`
+
+<!-- TODO: Create table of donation links for all maintainers -->

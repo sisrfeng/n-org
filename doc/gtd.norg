@@ -1,19 +1,40 @@
 @document.meta
-    title: gtd_neorg 
+    title: gtd_neorg
+    description: GTD specification for Neorg
     author: danielmathiot
+    categories:
     created: 2021-08-19
+    version: 1.0
 @end
- 
+
+| Last changes:
+- 19/08/2021:
+-- {# Top-level organization}: Added `reference` folder spec
+- 22/08/2021:
+-- {# Task format}:
+--- Removed task grouping by metadatas
+--- deleted the mandatory `last_review` field
+--- changed the notes format in a task
+--- Added subtasks
+--- Deleted `:` delimiter in #<due|start|contexts>
+--- Added {# Standard contexts}
+--- Added {# Working with dates}
+--- Removed notes specification
+--- Added special tags for waiting-for and someday
+-- {# Top-level organization}: Changed top-level organization with new files specs
+-- {# Projects management}:
+--- Added specs for projects
+--- Changed syntax
+- 15/01/2022:
+-- Added {# Inbox list}
+
 
 | *Disclaimers*:
-- This GTD workflow for Neorg is opinionated,
-    and derives from 3+ years of using GTD.
-    It is a tradeoff between core GTD workflow and best practices found in notorious applications
-    implementing GTD.
-- Be aware that the lisibility of .norg files is important,
-    but every part of the process should be  done via
-    special commands.
-    That means there is no required direct user interaction in the files.
+- This GTD workflow for Neorg is opinionated, and derives from 3+ years of using GTD.
+  It is a tradeoff between core GTD workflow and best practices found in notorious applications
+  implementing GTD.
+- Be aware that the lisibility of .norg files is important, but every part of the process should be
+  done via special commands. That means there is no required direct user interaction in the files.
 
 = TOC
 
@@ -25,7 +46,7 @@
 
    **** Generalities
         The format for a task is specified as follows (refering to {# Syntax}):
-        /The priority of the syntax is in this order/
+        /Note: the priority of the syntax is in this order/
         /Note2: if a task has subtasks, it is considered done as soon as all substasks are done/
         /Note3: You can go up to 6 subtask levels/
 
@@ -78,7 +99,7 @@
       {# Project} are represented via {:neorg:# headings}[headings] like so:
 
       @code norg
-
+      
           #contexts §context_name§ §context_name§ ...
           #time.start §date§
           #time.due §date§
@@ -91,10 +112,10 @@
       @code norg
       * This is a project
       - [ ] This is a task inside a project
-
+      
       * This is another project
       - [ ] This is a task inside the other project
-
+      
       * This is a very large project
        ** This is a heading for the project
           - [ ] This is a task
@@ -102,7 +123,7 @@
           - [ ] This is a task
       @end
 
-      You can see that we can create headings for a project.
+      You can see that we can create headings for a project. 
       In that way, we leverage neorg capabilities in order to divide tasks and content inside a
       project.
 
@@ -125,21 +146,21 @@
 
       @code norg
       | This is an AOF
-
+      
       * This is a project
       - [ ] This is a task inside a project
-
+      
       * This is another project
       - [ ] This is a task inside the other project
-
+      
       * This is a very large project
        ** This is a heading for the project
           - [ ] This is a task
        ** This is another heading for the project
           - [ ] This is a task
-
+      
       | _
-
+      
       This is not in an AOF
       @end
 
@@ -164,7 +185,7 @@
       This part is what I commonly refer as:
       > Processing the inbox
 
-      It is a set of actions to take in order to process what each task means.
+      It is a set of actions to take in order to process what each task means. 
       A best practice is to process each task at a time, following a FIFO
       convention. We should design the user interaction with that in mind.
 
@@ -269,4 +290,3 @@
 
 #comment
 vim:tw=100:ft=norg:norl:
-
