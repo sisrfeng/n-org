@@ -275,7 +275,8 @@ you in to your last (or only) workspace.
 
 #### It works, cool! What are the next steps?
 
-We recommend you add some core modules that can greatly improve your experience, such as:
+We recommend you add some core modules that
+can greatly improve your experience, such as:
 
 - Using the concealer module to enable icons (`core.norg.concealer`)
 - Setting up a completion engine (`core.norg.completion`)

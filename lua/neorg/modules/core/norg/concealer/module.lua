@@ -1,49 +1,50 @@
 --[[
-    File: Concealer
-    Title: Concealer Module for Neorg
     Summary: Enhances the basic Neorg experience by using icons instead of text.
-    ---
-This module handles the iconification and concealing of several different
-syntax elements in your document.
+    
+    This module handles the iconification and concealing of several different
+    syntax elements in your document.
 
-It's also directly responsible for displaying completion levels
-in situations like this:
-```norg
-* Do Some Things
-- [ ] Thing A
-- [ ] Thing B
-```
+    It's also directly responsible for displaying completion levels
+    in situations like this:
 
-Where it will display this instead:
-```norg
-* Do Some Things (0 of 2) [0% complete]
-- [ ] Thing A
-- [ ] Thing B
-```
+    ```norg
+    * Do Some Things
+    - [ ] Thing A
+    - [ ] Thing B
+    ```
 
-Once anticonceal (https://github.com/neovim/neovim/pull/9496) is
-a thing, punctuation can be added (without removing the whitespace
-between the icon and actual text) like so:
+    Where it will display this instead:
+    ```norg
+    * Do Some Things (0 of 2) [0% complete]
+    - [ ] Thing A
+    - [ ] Thing B
+    ```
 
-```lua
-icon = module.private.ordered_concealing.punctuation.dot(
-    module.private.ordered_concealing.icon_renderer.numeric
-)
-```
+    Once anticonceal
+    (https://github.com/neovim/neovim/pull/9496) is  a thing,
+    punctuation can be added
+    (without removing the whitespace  between the icon and actual text)
+    like so:
 
-Note: this will produce icons like `1.`, `2.`, etc.
-
-You can even chain multiple punctuation wrappers like so:
-
-```lua
-icon = module.private.ordered_concealing.punctuation.parenthesis(
-    module.private.ordered_concealing.punctuation.dot(
+    ```lua
+    icon = module.private.ordered_concealing.punctuation.dot(
         module.private.ordered_concealing.icon_renderer.numeric
     )
-)
-```
+    ```
 
-Note: this will produce icons like `1.)`, `2.)`, etc.
+    this will produce icons like `1.`, `2.`, etc.
+
+    You can even chain multiple punctuation wrappers like so:
+
+    ```lua
+    icon = module.private.ordered_concealing.punctuation.parenthesis(
+        module.private.ordered_concealing.punctuation.dot(
+            module.private.ordered_concealing.icon_renderer.numeric
+        )
+    )
+    ```
+
+    will produce icons like `1.)`, `2.)`, etc.
 --]]
 
 require("neorg.modules.base")
@@ -703,21 +704,21 @@ module.public = {
                 -- NOTE: only supports number up to 12
                 roman_uppwercase = function(count)
                     local chars = {
-                        [1] = "Ⅰ",
-                        [2] = "Ⅱ",
-                        [3] = "Ⅲ",
-                        [4] = "Ⅳ",
-                        [5] = "Ⅴ",
-                        [6] = "Ⅵ",
-                        [7] = "Ⅶ",
-                        [8] = "Ⅷ",
-                        [9] = "Ⅸ",
-                        [10] = "Ⅹ",
-                        [11] = "Ⅺ",
-                        [12] = "Ⅻ",
-                        [50] = "Ⅼ",
-                        [100] = "Ⅽ",
-                        [500] = "Ⅾ",
+                        [1]    = "Ⅰ",
+                        [2]    = "Ⅱ",
+                        [3]    = "Ⅲ",
+                        [4]    = "Ⅳ",
+                        [5]    = "Ⅴ",
+                        [6]    = "Ⅵ",
+                        [7]    = "Ⅶ",
+                        [8]    = "Ⅷ",
+                        [9]    = "Ⅸ",
+                        [10]   = "Ⅹ",
+                        [11]   = "Ⅺ",
+                        [12]   = "Ⅻ",
+                        [50]   = "Ⅼ",
+                        [100]  = "Ⅽ",
+                        [500]  = "Ⅾ",
                         [1000] = "Ⅿ",
                     }
                     return chars[count]
