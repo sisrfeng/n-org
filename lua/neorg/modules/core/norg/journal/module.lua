@@ -1,5 +1,6 @@
 --[[
     File: Journal
+    Title: Journal module for Neorg
     Summary: Easily create files for a journal.
     ---
 How to use this module:
