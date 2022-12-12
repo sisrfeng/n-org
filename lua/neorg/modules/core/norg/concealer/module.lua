@@ -255,12 +255,12 @@ module.public = {
             return
         end
 
-        -- Similarly to `trigger_icons()`, we get all old extmarks here, apply the new dims on top of the old ones,
+        -- Similarly to `trigger_icons()`, we gather all old extmarks here, apply the new dims on top of the old ones,
         -- then delete the old extmarks to prevent flickering
-        local old_extmarks = module.public.get_old_extmarks(buf, module.private.code_block_namespace, from, to)
+        local old_extmarks = {}
 
         -- The next block of code will be responsible for dimming code blocks accordingly
-        local tree = vim.treesitter.get_parser(buf, "norg"):parse()[1]
+        local tree = module.required["core.integrations.treesitter"].get_document_root(buf)
 
         -- If the tree is valid then attempt to perform the query
         if tree then
@@ -270,7 +270,7 @@ module.public = {
                 "norg",
                 [[(
                     (ranged_tag (tag_name) @_name) @tag
-                    (#eq? @_name "code")
+                    (#any-of? @_name "code" "embed")
                 )]]
             )
 
@@ -281,14 +281,24 @@ module.public = {
 
             -- Go through every found capture
             for id, node in query:iter_captures(tree:root(), buf, from or 0, to or -1) do
-                schedule(function()
-                    local id_name = query.captures[id]
+                local id_name = query.captures[id]
 
-                    -- If the capture name is "tag" then that means we're dealing with our ranged_tag;
-                    if id_name == "tag" then
-                        -- Get the range of the code block
-                        local range = module.required["core.integrations.treesitter"].get_node_range(node)
+                -- If the capture name is "tag" then that means we're dealing with our ranged_tag;
+                if id_name == "tag" then
+                    -- Get the range of the code block
+                    local range = module.required["core.integrations.treesitter"].get_node_range(node)
 
+                    vim.list_extend(
+                        old_extmarks,
+                        module.public.get_old_extmarks(
+                            buf,
+                            module.private.code_block_namespace,
+                            range.row_start,
+                            range.row_end
+                        )
+                    )
+
+                    schedule(function()
                         if module.config.public.dim_code_blocks.conceal then
                             pcall(
                                 vim.api.nvim_buf_set_extmark,
@@ -322,7 +332,10 @@ module.public = {
                             )
                         end
 
-                        if module.config.public.dim_code_blocks.adaptive then
+                        if
+                            module.config.public.dim_code_blocks.conceal
+                            and module.config.public.dim_code_blocks.adaptive
+                        then
                             module.config.public.dim_code_blocks.content_only = has_conceal
                         end
 
@@ -331,44 +344,129 @@ module.public = {
                             range.row_end = range.row_end - 1
                         end
 
+                        local width = module.config.public.dim_code_blocks.width
+                        local hl_eol = width == "fullwidth"
+
+                        local lines = vim.api.nvim_buf_get_lines(
+                            buf,
+                            range.row_start,
+                            (range.row_end >= vim.api.nvim_buf_line_count(buf) and range.row_start or range.row_end + 1),
+                            false
+                        )
+
+                        local longest_len = 0
+
+                        if width == "content" then
+                            for _, line in ipairs(lines) do
+                                longest_len = math.max(longest_len, vim.api.nvim_strwidth(line))
+                            end
+                        end
+
                         -- Go through every line in the code block and give it a magical highlight
-                        for i = range.row_start, range.row_end >= vim.api.nvim_buf_line_count(buf) and 0 or range.row_end, 1 do
-                            local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, true)[1]
+                        for i, line in ipairs(lines) do
+                            local linenr = range.row_start + (i - 1)
+                            local line_width = vim.api.nvim_strwidth(line)
 
                             -- If our line is valid and it's not too short then apply the dimmed highlight
                             if line and line:len() >= range.column_start then
                                 module.public._set_extmark(
                                     buf,
                                     nil,
-                                    "NeorgCodeBlock",
+                                    "@neorg.tags.ranged_verbatim.code_block",
                                     module.private.code_block_namespace,
-                                    i,
-                                    i + 1,
-                                    range.column_start,
+                                    linenr,
+                                    linenr + 1,
+                                    math.max(range.column_start - module.config.public.dim_code_blocks.padding.left, 0),
                                     nil,
-                                    true,
-                                    "blend"
+                                    hl_eol,
+                                    "blend",
+                                    nil,
+                                    nil,
+                                    true
                                 )
+
+                                if width == "content" then
+                                    module.public._set_extmark(
+                                        buf,
+                                        {
+                                            {
+                                                string.rep(
+                                                    " ",
+                                                    longest_len
+                                                        - line_width
+                                                        + module.config.public.dim_code_blocks.padding.right
+                                                ),
+                                                "@neorg.tags.ranged_verbatim.code_block",
+                                            },
+                                        },
+                                        nil,
+                                        module.private.code_block_namespace,
+                                        linenr,
+                                        linenr + 1,
+                                        line_width,
+                                        nil,
+                                        hl_eol,
+                                        "blend",
+                                        nil,
+                                        nil,
+                                        true
+                                    )
+                                end
                             else
                                 -- There may be scenarios where the line is empty, or the line is shorter than the indentation
                                 -- level of the code block, in that case we place the extmark at the very beginning of the line
                                 -- and pad it with enough spaces to "emulate" the existence of whitespace
                                 module.public._set_extmark(
                                     buf,
-                                    { { string.rep(" ", range.column_start) } },
-                                    "NeorgCodeBlock",
+                                    {
+                                        {
+                                            string.rep(
+                                                " ",
+                                                math.max(
+                                                    range.column_start
+                                                        - module.config.public.dim_code_blocks.padding.left,
+                                                    0
+                                                )
+                                            ),
+                                        },
+                                        (
+                                            width == "content"
+                                                and {
+                                                    string.rep(
+                                                        " ",
+                                                        math.max(
+                                                            (longest_len - range.column_start)
+                                                                + module.config.public.dim_code_blocks.padding.left
+                                                                + module.config.public.dim_code_blocks.padding.right
+                                                                - math.max(
+                                                                    module.config.public.dim_code_blocks.padding.left
+                                                                        - range.column_start,
+                                                                    0
+                                                                ),
+                                                            0
+                                                        )
+                                                    ),
+                                                    "@neorg.tags.ranged_verbatim.code_block",
+                                                }
+                                            or nil
+                                        ),
+                                    },
+                                    "@neorg.tags.ranged_verbatim.code_block",
                                     module.private.code_block_namespace,
-                                    i,
-                                    i + 1,
+                                    linenr,
+                                    linenr + 1,
                                     0,
                                     nil,
-                                    true,
-                                    "blend"
+                                    hl_eol,
+                                    "blend",
+                                    nil,
+                                    nil,
+                                    true
                                 )
                             end
                         end
-                    end
-                end)
+                    end)
+                end
             end
 
             schedule(function()
@@ -390,6 +488,7 @@ module.public = {
     ---@param mode string #"replace"/"combine"/"blend" - the highlight mode for the extmark
     ---@param pos string #"overlay"/"eol"/"right_align" - the position to place the extmark in (defaults to "overlay")
     ---@param conceal string #The char to use for concealing
+    ---@param fixed boolean #When true the extmark will not move
     _set_extmark = function(
         buf,
         text,
@@ -402,7 +501,8 @@ module.public = {
         whole_line,
         mode,
         pos,
-        conceal
+        conceal,
+        fixed
     )
         if not vim.api.nvim_buf_is_loaded(buf) then
             return
@@ -420,6 +520,7 @@ module.public = {
             end_row = end_line,
             virt_text = text,
             virt_text_pos = pos or "overlay",
+            virt_text_win_col = (fixed and start_column or nil),
             hl_mode = mode,
             hl_eol = whole_line,
             conceal = conceal,
@@ -1008,7 +1109,6 @@ module.config.public = {
             done = {
                 enabled = true,
                 icon = "",
-                highlight = "NeorgTodoItemDoneMark",
                 query = "(todo_item_done) @icon",
                 extract = function()
                     return 1
@@ -1018,7 +1118,6 @@ module.config.public = {
             pending = {
                 enabled = true,
                 icon = "",
-                highlight = "NeorgTodoItemPendingMark",
                 query = "(todo_item_pending) @icon",
                 extract = function()
                     return 1
@@ -1028,7 +1127,6 @@ module.config.public = {
             undone = {
                 enabled = true,
                 icon = "×",
-                highlight = "NeorgTodoItemUndoneMark",
                 query = "(todo_item_undone) @icon",
                 extract = function()
                     return 1
@@ -1038,7 +1136,6 @@ module.config.public = {
             uncertain = {
                 enabled = true,
                 icon = "",
-                highlight = "NeorgTodoItemUncertainMark",
                 query = "(todo_item_uncertain) @icon",
                 extract = function()
                     return 1
@@ -1048,7 +1145,6 @@ module.config.public = {
             on_hold = {
                 enabled = true,
                 icon = "",
-                highlight = "NeorgTodoItemOnHoldMark",
                 query = "(todo_item_on_hold) @icon",
                 extract = function()
                     return 1
@@ -1058,7 +1154,6 @@ module.config.public = {
             cancelled = {
                 enabled = true,
                 icon = "",
-                highlight = "NeorgTodoItemCancelledMark",
                 query = "(todo_item_cancelled) @icon",
                 extract = function()
                     return 1
@@ -1068,7 +1163,6 @@ module.config.public = {
             recurring = {
                 enabled = true,
                 icon = "↺",
-                highlight = "NeorgTodoItemRecurringMark",
                 query = "(todo_item_recurring) @icon",
                 extract = function()
                     return 1
@@ -1078,7 +1172,6 @@ module.config.public = {
             urgent = {
                 enabled = true,
                 icon = "⚠",
-                highlight = "NeorgTodoItemUrgentMark",
                 query = "(todo_item_urgent) @icon",
                 extract = function()
                     return 1
@@ -1092,42 +1185,36 @@ module.config.public = {
             level_1 = {
                 enabled = true,
                 icon = "•",
-                highlight = "NeorgUnorderedList1",
                 query = "(unordered_list1_prefix) @icon",
             },
 
             level_2 = {
                 enabled = true,
                 icon = " •",
-                highlight = "NeorgUnorderedList2",
                 query = "(unordered_list2_prefix) @icon",
             },
 
             level_3 = {
                 enabled = true,
                 icon = "  •",
-                highlight = "NeorgUnorderedList3",
                 query = "(unordered_list3_prefix) @icon",
             },
 
             level_4 = {
                 enabled = true,
                 icon = "   •",
-                highlight = "NeorgUnorderedList4",
                 query = "(unordered_list4_prefix) @icon",
             },
 
             level_5 = {
                 enabled = true,
                 icon = "    •",
-                highlight = "NeorgUnorderedList5",
                 query = "(unordered_list5_prefix) @icon",
             },
 
             level_6 = {
                 enabled = true,
                 icon = "     •",
-                highlight = "NeorgUnorderedList6",
                 query = "(unordered_list6_prefix) @icon",
             },
         },
@@ -1137,37 +1224,31 @@ module.config.public = {
             level_1 = {
                 enabled = true,
                 icon = " ",
-                highlight = "NeorgUnorderedLink1",
                 query = "(unordered_link1_prefix) @icon",
             },
             level_2 = {
                 enabled = true,
                 icon = "  ",
-                highlight = "NeorgUnorderedLink2",
                 query = "(unordered_link2_prefix) @icon",
             },
             level_3 = {
                 enabled = true,
                 icon = "   ",
-                highlight = "NeorgUnorderedLink3",
                 query = "(unordered_link3_prefix) @icon",
             },
             level_4 = {
                 enabled = true,
                 icon = "    ",
-                highlight = "NeorgUnorderedLink4",
                 query = "(unordered_link4_prefix) @icon",
             },
             level_5 = {
                 enabled = true,
                 icon = "     ",
-                highlight = "NeorgUnorderedLink5",
                 query = "(unordered_link5_prefix) @icon",
             },
             level_6 = {
                 enabled = true,
                 icon = "      ",
-                highlight = "NeorgUnorderedLink6",
                 query = "(unordered_link6_prefix) @icon",
             },
         },
@@ -1180,7 +1261,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_dot(
                     module.public.concealing.ordered.enumerator.numeric
                 ),
-                highlight = "NeorgOrderedList1",
                 query = "(ordered_list1_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_list1")
@@ -1193,7 +1273,6 @@ module.config.public = {
             level_2 = {
                 enabled = true,
                 icon = module.public.concealing.ordered.enumerator.latin_uppercase,
-                highlight = "NeorgOrderedList2",
                 query = "(ordered_list2_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_list2")
@@ -1206,7 +1285,6 @@ module.config.public = {
             level_3 = {
                 enabled = true,
                 icon = module.public.concealing.ordered.enumerator.latin_lowercase,
-                highlight = "NeorgOrderedList3",
                 query = "(ordered_list3_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_list3")
@@ -1221,7 +1299,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_double_parenthesis(
                     module.public.concealing.ordered.enumerator.numeric
                 ),
-                highlight = "NeorgOrderedList4",
                 query = "(ordered_list4_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_list4")
@@ -1234,7 +1311,6 @@ module.config.public = {
             level_5 = {
                 enabled = true,
                 icon = module.public.concealing.ordered.enumerator.latin_uppercase,
-                highlight = "NeorgOrderedList5",
                 query = "(ordered_list5_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_list5")
@@ -1249,7 +1325,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_double_parenthesis(
                     module.public.concealing.ordered.enumerator.latin_lowercase
                 ),
-                highlight = "NeorgOrderedList6",
                 query = "(ordered_list6_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_list6")
@@ -1267,7 +1342,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_circle(
                     module.public.concealing.ordered.enumerator.numeric
                 ),
-                highlight = "NeorgOrderedLink1",
                 query = "(ordered_link1_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_link1")
@@ -1281,7 +1355,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_circle(
                     module.public.concealing.ordered.enumerator.latin_uppercase
                 ),
-                highlight = "NeorgOrderedLink2",
                 query = "(ordered_link2_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_link2")
@@ -1295,7 +1368,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_circle(
                     module.public.concealing.ordered.enumerator.latin_lowercase
                 ),
-                highlight = "NeorgOrderedLink3",
                 query = "(ordered_link3_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_link3")
@@ -1309,7 +1381,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_circle(
                     module.public.concealing.ordered.enumerator.numeric
                 ),
-                highlight = "NeorgOrderedLink4",
                 query = "(ordered_link4_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_link4")
@@ -1323,7 +1394,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_circle(
                     module.public.concealing.ordered.enumerator.latin_uppercase
                 ),
-                highlight = "NeorgOrderedLink5",
                 query = "(ordered_link5_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_link5")
@@ -1337,7 +1407,6 @@ module.config.public = {
                 icon = module.public.concealing.ordered.punctuation.unicode_circle(
                     module.public.concealing.ordered.enumerator.latin_lowercase
                 ),
-                highlight = "NeorgOrderedLink6",
                 query = "(ordered_link6_prefix) @icon",
                 render = function(self, _, node)
                     local count = module.public.concealing.ordered.get_index(node, "ordered_link6")
@@ -1354,14 +1423,14 @@ module.config.public = {
             level_1 = {
                 enabled = true,
                 icon = "│",
-                highlight = "NeorgQuote1",
+                highlight = "@neorg.quotes.1.prefix",
                 query = "(quote1_prefix) @icon",
             },
 
             level_2 = {
                 enabled = true,
                 icon = "│",
-                highlight = "NeorgQuote2",
+                highlight = "@neorg.quotes.2.prefix",
                 query = "(quote2_prefix) @icon",
                 render = function(self)
                     return {
@@ -1374,7 +1443,7 @@ module.config.public = {
             level_3 = {
                 enabled = true,
                 icon = "│",
-                highlight = "NeorgQuote3",
+                highlight = "@neorg.quotes.3.prefix",
                 query = "(quote3_prefix) @icon",
                 render = function(self)
                     return {
@@ -1388,7 +1457,7 @@ module.config.public = {
             level_4 = {
                 enabled = true,
                 icon = "│",
-                highlight = "NeorgQuote4",
+                highlight = "@neorg.quotes.4.prefix",
                 query = "(quote4_prefix) @icon",
                 render = function(self)
                     return {
@@ -1403,7 +1472,7 @@ module.config.public = {
             level_5 = {
                 enabled = true,
                 icon = "│",
-                highlight = "NeorgQuote5",
+                highlight = "@neorg.quotes.5.prefix",
                 query = "(quote5_prefix) @icon",
                 render = function(self)
                     return {
@@ -1419,7 +1488,7 @@ module.config.public = {
             level_6 = {
                 enabled = true,
                 icon = "│",
-                highlight = "NeorgQuote6",
+                highlight = "@neorg.quotes.6.prefix",
                 query = "(quote6_prefix) @icon",
                 render = function(self)
                     return {
@@ -1440,42 +1509,42 @@ module.config.public = {
             level_1 = {
                 enabled = true,
                 icon = "◉",
-                highlight = "NeorgHeading1",
+                highlight = "@neorg.headings.1.prefix",
                 query = "[ (heading1_prefix) (link_target_heading1) @no-conceal ] @icon",
             },
 
             level_2 = {
                 enabled = true,
                 icon = " ◎",
-                highlight = "NeorgHeading2",
+                highlight = "@neorg.headings.2.prefix",
                 query = "[ (heading2_prefix) (link_target_heading2) @no-conceal ] @icon",
             },
 
             level_3 = {
                 enabled = true,
                 icon = "  ○",
-                highlight = "NeorgHeading3",
+                highlight = "@neorg.headings.3.prefix",
                 query = "[ (heading3_prefix) (link_target_heading3) @no-conceal ] @icon",
             },
 
             level_4 = {
                 enabled = true,
                 icon = "   ✺",
-                highlight = "NeorgHeading4",
+                highlight = "@neorg.headings.4.prefix",
                 query = "[ (heading4_prefix) (link_target_heading4) @no-conceal ] @icon",
             },
 
             level_5 = {
                 enabled = true,
                 icon = "    ▶",
-                highlight = "NeorgHeading5",
+                highlight = "@neorg.headings.5.prefix",
                 query = "[ (heading5_prefix) (link_target_heading5) @no-conceal ] @icon",
             },
 
             level_6 = {
                 enabled = true,
                 icon = "     ⤷",
-                highlight = "NeorgHeading6",
+                highlight = "@neorg.headings.6.prefix",
                 query = "[ (heading6_prefix) (link_target_heading6) @no-conceal ] @icon",
                 render = function(self, text)
                     return {
@@ -1491,7 +1560,6 @@ module.config.public = {
         marker = {
             enabled = true,
             icon = "",
-            highlight = "NeorgMarker",
             query = "[ (marker_prefix) (link_target_marker) @no-conceal ] @icon",
         },
 
@@ -1501,19 +1569,16 @@ module.config.public = {
             single = {
                 enabled = true,
                 icon = "≡",
-                highlight = "NeorgDefinition",
                 query = "[ (single_definition_prefix) (link_target_definition) @no-conceal ] @icon",
             },
             multi_prefix = {
                 enabled = true,
                 icon = "⋙ ",
-                highlight = "NeorgDefinition",
                 query = "(multi_definition_prefix) @icon",
             },
             multi_suffix = {
                 enabled = true,
                 icon = "⋘ ",
-                highlight = "NeorgDefinitionEnd",
                 query = "(multi_definition_suffix) @icon",
             },
         },
@@ -1524,19 +1589,16 @@ module.config.public = {
             single = {
                 enabled = true,
                 icon = "⁎",
-                highlight = "NeorgFootnote",
                 query = "[ (single_footnote_prefix) (link_target_footnote) @no-conceal ] @icon",
             },
             multi_prefix = {
                 enabled = true,
                 icon = "⁑ ",
-                highlight = "NeorgFootnote",
                 query = "(multi_footnote_prefix) @icon",
             },
             multi_suffix = {
                 enabled = true,
                 icon = "⁑ ",
-                highlight = "NeorgFootnoteEnd",
                 query = "(multi_footnote_suffix) @icon",
             },
         },
@@ -1547,7 +1609,7 @@ module.config.public = {
             weak = {
                 enabled = true,
                 icon = "⟨",
-                highlight = "NeorgWeakParagraphDelimiter",
+                highlight = "@neorg.delimiters.weak",
                 query = "(weak_paragraph_delimiter) @icon",
                 render = function(self, text)
                     return {
@@ -1559,7 +1621,7 @@ module.config.public = {
             strong = {
                 enabled = true,
                 icon = "⟪",
-                highlight = "NeorgStrongParagraphDelimiter",
+                highlight = "@neorg.delimiters.strong",
                 query = "(strong_paragraph_delimiter) @icon",
                 render = function(self, text)
                     return {
@@ -1571,7 +1633,7 @@ module.config.public = {
             horizontal_line = {
                 enabled = true,
                 icon = "─",
-                highlight = "NeorgHorizontalLine",
+                highlight = "@neorg.delimiters.horizontal_line",
                 query = "(horizontal_line) @icon",
                 render = function(self, _, node)
                     -- Get the length of the Neovim window (used to render to the edge of the screen)
@@ -1583,11 +1645,14 @@ module.config.public = {
                         -- determine how much space it occupies in the buffer vertically
                         local prev_sibling = node:prev_sibling()
                         local double_prev_sibling = prev_sibling:prev_sibling()
-                        local ts = module.required["core.integrations.treesitter"].get_ts_utils()
 
                         if prev_sibling then
                             -- Get the text of the previous sibling and store its longest line width-wise
-                            local text = ts.get_node_text(prev_sibling)
+                            local text = vim.split(
+                                module.required["core.integrations.treesitter"].get_node_text(prev_sibling),
+                                "\n",
+                                { plain = true, trimempty = true }
+                            )
                             local longest = 3
 
                             if
@@ -1641,7 +1706,7 @@ module.config.public = {
             spoiler = {
                 enabled = true,
                 icon = "•",
-                highlight = "NeorgMarkupSpoiler",
+                highlight = "@neorg.markup.spoiler",
                 query = '(spoiler ("_open") _ @icon ("_close"))',
                 render = function(self, text)
                     return { { string.rep(self.icon, text:len()), self.highlight } }
@@ -1653,6 +1718,7 @@ module.config.public = {
     -- If you want to dim code blocks
     dim_code_blocks = {
         enabled = true,
+
         -- If true will only dim the content of the code block,
         -- not the code block itself.
         content_only = true,
@@ -1661,6 +1727,23 @@ module.config.public = {
         -- If `conceallevel` > 0, then only the content will be dimmed,
         -- else the whole code block will be dimmed.
         adaptive = true,
+
+        -- The width to use for code block backgrounds.
+        --
+        -- When set to `fullwidth` (the default), will create a background
+        -- that spans the width of the buffer.
+        --
+        -- When set to `content`, will only span as far as the longest line
+        -- within the code block.
+        width = "fullwidth",
+
+        -- Additional padding to apply to either the left or the right.
+        -- Making these values negative is undefined behaviour (it may work, but
+        -- it's not officially supported).
+        padding = {
+            left = 0,
+            right = 0,
+        },
 
         -- If `true` will conceal the `@code` and `@end` portion of the code
         -- block.
@@ -1682,9 +1765,9 @@ module.config.public = {
                     result["heading" .. i] = {
                         text = {
                             "(",
-                            { "<done>", "TSField" },
+                            { "<done>", "@field" },
                             " of ",
-                            { "<total>", "NeorgTodoItem1Done" },
+                            { "<total>", "@neorg.todo_items.done.1" },
                             ") [<percentage>% complete]",
                         },
 
@@ -1784,14 +1867,10 @@ module.load = function()
 
     neorg.modules.await("core.neorgcmd", function(neorgcmd)
         neorgcmd.add_commands_from_table({
-            definitions = {
-                ["toggle-concealer"] = {},
-            },
-            data = {
-                ["toggle-concealer"] = {
-                    name = "core.norg.concealer.toggle",
-                    args = 0,
-                },
+            ["toggle-concealer"] = {
+                name = "core.norg.concealer.toggle",
+                args = 0,
+                condition = "norg",
             },
         })
     end)
@@ -1801,6 +1880,9 @@ module.load = function()
             pattern = "conceallevel",
             callback = function()
                 local current_buffer = vim.api.nvim_get_current_buf()
+                if vim.bo[current_buffer].ft ~= "norg" then
+                    return
+                end
                 local has_conceal = (tonumber(vim.v.option_new) > 0)
 
                 module.public.trigger_icons(
@@ -1810,7 +1892,7 @@ module.load = function()
                     module.private.icon_namespace
                 )
 
-                if module.config.public.dim_code_blocks.adaptive then
+                if module.config.public.dim_code_blocks.conceal and module.config.public.dim_code_blocks.adaptive then
                     module.public.trigger_code_block_highlights(current_buffer, has_conceal)
                 end
             end,
@@ -1835,18 +1917,23 @@ module.on_event = function(event)
             >= module.config.public.performance.max_debounce
     end
 
-    local has_conceal = vim.api.nvim_win_is_valid(event.window)
-            and (vim.api.nvim_win_get_option(event.window, "conceallevel") > 0)
+    local has_conceal = (
+        vim.api.nvim_win_is_valid(event.window) and (vim.api.nvim_win_get_option(event.window, "conceallevel") > 0)
         or false
+    )
 
     if event.type == "core.autocommands.events.bufenter" and event.content.norg then
-        if module.config.public.folds then
-            vim.api.nvim_win_set_option(event.window, "foldmethod", "expr")
-            vim.api.nvim_win_set_option(event.window, "foldexpr", "nvim_treesitter#foldexpr()")
-            vim.api.nvim_win_set_option(
-                event.window,
+        if module.config.public.folds and vim.api.nvim_win_is_valid(event.window) then
+            local opts = {
+                scope = "local",
+                win = event.window,
+            }
+            vim.api.nvim_set_option_value("foldmethod", "expr", opts)
+            vim.api.nvim_set_option_value("foldexpr", "nvim_treesitter#foldexpr()", opts)
+            vim.api.nvim_set_option_value(
                 "foldtext",
-                "v:lua.neorg.modules.get_module('core.norg.concealer').foldtext()"
+                "v:lua.neorg.modules.get_module('core.norg.concealer').foldtext()",
+                opts
             )
         end
 
@@ -1942,14 +2029,17 @@ module.on_event = function(event)
 
                 local mode = vim.api.nvim_get_mode().mode
 
+                has_conceal = (
+                    vim.api.nvim_win_is_valid(event.window)
+                        and (vim.api.nvim_win_get_option(event.window, "conceallevel") > 0)
+                    or false
+                )
+
                 if mode ~= "i" then
                     module.private.debounce_counters[event.cursor_position[1] + 1] = module.private.debounce_counters[event.cursor_position[1] + 1]
                         + 1
 
                     schedule(function()
-                        has_conceal = vim.api.nvim_win_is_valid(event.window)
-                                and (vim.api.nvim_win_get_option(event.window, "conceallevel") > 0)
-                            or false
                         local new_line_count = vim.api.nvim_buf_line_count(buf)
 
                         -- Sometimes occurs with one-line undos
@@ -2063,8 +2153,42 @@ module.on_event = function(event)
         end)
     elseif event.type == "core.autocommands.events.vimleavepre" then
         module.private.disable_deferred_updates = true
+    elseif event.type == "core.norg.concealer.events.update_region" then
+        schedule(function()
+            vim.api.nvim_buf_clear_namespace(
+                event.buffer,
+                module.private.icon_namespace,
+                event.content.start,
+                event.content["end"]
+            )
+            vim.api.nvim_buf_clear_namespace(
+                event.buffer,
+                module.private.completion_level_namespace,
+                event.content.start,
+                event.content["end"]
+            )
+
+            module.public.trigger_icons(
+                event.buffer,
+                module.private.has_conceal,
+                module.private.icons,
+                module.private.icon_namespace,
+                event.content.start,
+                event.content["end"]
+            )
+
+            module.public.completion_levels.trigger_completion_levels(
+                event.buffer,
+                event.content.start,
+                event.content["end"]
+            )
+        end)
     end
 end
+
+module.events.defined = {
+    update_region = neorg.events.define(module, "update_region"),
+}
 
 module.events.subscribed = {
     ["core.autocommands"] = {
@@ -2076,6 +2200,10 @@ module.events.subscribed = {
 
     ["core.neorgcmd"] = {
         ["core.norg.concealer.toggle"] = true,
+    },
+
+    ["core.norg.concealer"] = {
+        update_region = true,
     },
 }
 

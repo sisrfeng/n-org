@@ -1,7 +1,7 @@
 --[[
     File: Treesitter-Integration
     Title: TreeSitter integration in Neorg
-	Summary: A module designed to integrate TreeSitter into Neorg.
+    Summary: A module designed to integrate TreeSitter into Neorg.
     ---
 --]]
 
@@ -11,6 +11,33 @@ local module = neorg.modules.create("core.integrations.treesitter")
 
 module.private = {
     ts_utils = nil,
+    link_query = [[
+                (link) @next-segment
+                (anchor_declaration) @next-segment
+                (anchor_definition) @next-segment
+             ]],
+    heading_query = [[
+                 [
+                     (heading1
+                         title: (paragraph_segment) @next-segment
+                     )
+                     (heading2
+                         title: (paragraph_segment) @next-segment
+                     )
+                     (heading3
+                         title: (paragraph_segment) @next-segment
+                     )
+                     (heading4
+                         title: (paragraph_segment) @next-segment
+                     )
+                     (heading5
+                         title: (paragraph_segment) @next-segment
+                     )
+                     (heading6
+                         title: (paragraph_segment) @next-segment
+                     )
+                 ]
+             ]],
 }
 
 module.setup = function()
@@ -36,39 +63,43 @@ module.load = function()
         }
 
         module.required["core.neorgcmd"].add_commands_from_table({
-            definitions = {
-                ["sync-parsers"] = {},
-            },
-            data = {
-                ["sync-parsers"] = {
-                    args = 0,
-                    name = "sync-parsers",
-                },
+            ["sync-parsers"] = {
+                args = 0,
+                name = "sync-parsers",
             },
         })
 
         -- luacheck: pop
 
-        if not neorg.lib.inline_pcall(vim.treesitter.parse_query, "norg", [[]]) then
-            if module.config.public.install_parsers then
-                pcall(vim.cmd, "TSInstallSync! norg")
-                pcall(vim.cmd, "TSInstallSync! norg_meta")
-            else
-                assert(false, "Neorg's parser is not installed! Run `:Neorg sync-parsers` to install it.")
-            end
-        end
+        vim.api.nvim_create_autocmd("BufEnter", {
+            pattern = "*.norg",
+            once = true,
+            callback = function()
+                if vim.tbl_isempty(vim.api.nvim_get_runtime_file("parser/norg.so", false) or {}) then
+                    if module.config.public.install_parsers then
+                        require("nvim-treesitter.install").commands.TSInstallSync["run!"]("norg", "norg_meta")
+                    else
+                        assert(false, "Neorg's parser is not installed! Run `:Neorg sync-parsers` to install it.")
+                    end
+                end
+            end,
+        })
     end
 
     module.private.ts_utils = ts_utils
 
     module.required["core.mode"].add_mode("traverse-heading")
-    module.required["core.keybinds"].register_keybinds(module.name, { "next.heading", "previous.heading" })
+    module.required["core.keybinds"].register_keybinds(
+        module.name,
+        { "next.heading", "previous.heading", "next.link", "previous.link" }
+    )
 end
 
 module.config.public = {
     --- If true will auto-configure the parsers to use the recommended setup.
     --  Sometimes `nvim-treesitter`'s repositories lag behind and this is the only good fix.
     configure_parsers = true,
+
     --- If true will automatically install parsers if they are not present.
     install_parsers = true,
 
@@ -79,11 +110,13 @@ module.config.public = {
             url = "https://github.com/nvim-neorg/tree-sitter-norg",
             files = { "src/parser.c", "src/scanner.cc" },
             branch = "main",
+            revision = "5d9c76b5c9927955f7c5d5d946397584e307f69f",
         },
         norg_meta = {
             url = "https://github.com/nvim-neorg/tree-sitter-norg-meta",
             files = { "src/parser.c" },
             branch = "main",
+            revision = "e93dcbc56a472649547cfc288f10ae4a93ef8795",
         },
     },
 }
@@ -96,108 +129,73 @@ module.public = {
         return module.private.ts_utils
     end,
 
-    --- Jumps to the next available heading in the current buffer
-    goto_next_heading = function()
-        local line_number = vim.api.nvim_win_get_cursor(0)[1]
+    --- Jumps to the next match of a query in the current buffer
+    ---@param query_string string Query with `@next-segment` captures
+    goto_next_query_match = function(query_string)
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local line_number, col_number = cursor[1], cursor[2]
 
         local document_root = module.public.get_document_root(0)
 
         if not document_root then
             return
         end
+        local next_match_query = vim.treesitter.parse_query("norg", query_string)
+        for id, node in next_match_query:iter_captures(document_root, 0, line_number - 1, -1) do
+            if next_match_query.captures[id] == "next-segment" then
+                local start_line, start_col = node:range()
+                -- start_line is 0-based; increment by one so we can compare it to the 1-based line_number
+                start_line = start_line + 1
 
-        local next_heading_query = vim.treesitter.parse_query(
-            "norg",
-            [[
-            [
-                (heading1
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading2
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading3
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading4
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading5
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading6
-                    title: (paragraph_segment) @next-segment
-                )
-            ]
-        ]]
-        )
+                -- Skip node if it's inside a closed fold
+                if not vim.tbl_contains({ -1, start_line }, vim.fn.foldclosed(start_line)) then
+                    goto continue
+                end
 
-        for id, node in next_heading_query:iter_captures(document_root, 0, line_number + 1, -1) do
-            if next_heading_query.captures[id] == "next-segment" then
-                local start_line = node:range()
-
-                if
-                    vim.tbl_contains({ -1, start_line + 1 }, vim.fn.foldclosed(start_line + 1))
-                    and start_line >= line_number
-                then
+                -- Find and go to the first matching node that starts after the current cursor position.
+                if (start_line == line_number and start_col > col_number) or start_line > line_number then
                     module.private.ts_utils.goto_node(node)
                     return
                 end
             end
+
+            ::continue::
         end
     end,
 
-    --- Jumps to the previous available heading in the current buffer
-    goto_previous_heading = function()
-        local line_number = vim.api.nvim_win_get_cursor(0)[1]
+    --- Jumps to the previous match of a query in the current buffer
+    ---@param query_string string Query with `@next-segment` captures
+    goto_previous_query_match = function(query_string)
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local line_number, col_number = cursor[1], cursor[2]
 
         local document_root = module.public.get_document_root(0)
 
         if not document_root then
             return
         end
-
-        local previous_heading_query = vim.treesitter.parse_query(
-            "norg",
-            [[
-            [
-                (heading1
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading2
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading3
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading4
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading5
-                    title: (paragraph_segment) @next-segment
-                )
-                (heading6
-                    title: (paragraph_segment) @next-segment
-                )
-            ]
-        ]]
-        )
-
+        local previous_match_query = vim.treesitter.parse_query("norg", query_string)
         local final_node = nil
 
-        for id, node in previous_heading_query:iter_captures(document_root, 0, 0, line_number - 1) do
-            if previous_heading_query.captures[id] == "next-segment" then
-                local start_line = node:range()
+        for id, node in previous_match_query:iter_captures(document_root, 0, 0, line_number) do
+            if previous_match_query.captures[id] == "next-segment" then
+                local start_line, _, _, end_col = node:range()
+                -- start_line is 0-based; increment by one so we can compare it to the 1-based line_number
+                start_line = start_line + 1
 
-                if
-                    vim.tbl_contains({ -1, start_line + 1 }, vim.fn.foldclosed(start_line + 1))
-                    and start_line < (line_number - 1)
-                then
+                -- Skip node if it's inside a closed fold
+                if not vim.tbl_contains({ -1, start_line }, vim.fn.foldclosed(start_line)) then
+                    goto continue
+                end
+
+                -- Find the last matching node that ends before the current cursor position.
+                if start_line < line_number or (start_line == line_number and end_col < col_number) then
                     final_node = node
                 end
             end
-        end
 
+            ::continue::
+        end
         if final_node then
             module.private.ts_utils.goto_node(final_node)
         end
@@ -285,6 +283,11 @@ module.public = {
         local end_row, end_col = node:end_()
 
         local eof_row = vim.api.nvim_buf_line_count(source)
+
+        if end_row >= eof_row then
+            end_row = eof_row - 1
+            end_col = -1
+        end
 
         if start_row >= eof_row then
             return nil
@@ -483,18 +486,28 @@ module.public = {
         }
     end,
 
-    --- Extracts the document root from the current document
-    ---@param buf number The number of the buffer to extract (can be nil)
+    --- Extracts the document root from the current document or from the string
+    ---@param src number|string The number of the buffer to extract or string with code (can be nil)
+    ---@param filetype The filetype of the buffer or the string with code
     ---@return userdata #The root node of the document
-    get_document_root = function(buf)
-        local tree = vim.treesitter.get_parser(buf or 0, "norg"):parse()[1]
+    get_document_root = function(src, filetype)
+        filetype = filetype or "norg"
 
-        if not tree or not tree:root() then
+        local parser
+        if type(src) == "string" then
+            parser = vim.treesitter.get_string_parser(src, filetype)
+        else
+            parser = vim.treesitter.get_parser(src or 0, filetype)
+        end
+
+        local tree = parser:parse()[1]
+
+        if not tree or not tree:root() or tree:root():type() == "ERROR" then
             log.warn("Unable to parse the current document's syntax tree :(")
             return
         end
 
-        return tree:root():type() ~= "ERROR" and tree:root()
+        return tree:root()
     end,
 
     --- Attempts to find a parent of a node recursively
@@ -520,14 +533,13 @@ module.public = {
     --- Retrieves the first node at a specific line
     ---@param buf number #The buffer to search in (0 for current)
     ---@param line number #The line number (0-indexed) to get the node from
-    ---@param unnamed? boolean #If true will also target and return unnamed nodes
-    ---@param lenient? boolean #If true will not employ an extra check that ensures the target node begins on
     -- the same line as `line`.
+    ---@param string|table? #Don't recurse to the provided type(s)
     ---@return userdata|nil #The first node on `line`
-    get_first_node_on_line = function(buf, line, unnamed, lenient)
-        local query_str = [[
-            _ @node
-        ]]
+    get_first_node_on_line = function(buf, line, stop_type)
+        if type(stop_type) == "string" then
+            stop_type = { stop_type }
+        end
 
         local document_root = module.public.get_document_root(buf)
 
@@ -535,51 +547,30 @@ module.public = {
             return
         end
 
-        if line == 0 and not lenient then
-            local first_node = document_root:named_child(0)
+        local first_char = (vim.api.nvim_buf_get_lines(buf, line, line + 1, true)[1] or ""):match("^(%s+)[^%s]")
+        first_char = first_char and first_char:len() or 0
 
-            if not first_node then
-                return
-            end
+        local descendant = document_root:descendant_for_range(line, first_char, line, first_char + 1)
 
-            if module.public.get_node_range(first_node).row_start == 0 then
-                return first_node
-            end
-
+        if not descendant then
             return
         end
 
-        local query = vim.treesitter.parse_query("norg", query_str)
+        while
+            descendant:parent()
+            and (descendant:parent():start()) == line
+            and descendant:parent():symbol() ~= document_root:symbol()
+        do
+            local parent = descendant:parent()
 
-        local function find_closest_unnamed_node(node)
-            if unnamed or not node or node:named() then
-                return node
+            if parent and stop_type and vim.tbl_contains(stop_type, parent:type()) then
+                break
             end
 
-            while node and not node:named() do
-                node = node:parent()
-            end
-
-            return node
+            descendant = parent
         end
 
-        local result
-
-        for id, node in query:iter_captures(document_root, buf, lenient and line - 1 or line, line + 1) do
-            if query.captures[id] == "node" then
-                if lenient then
-                    result = node
-                else
-                    local range = module.public.get_node_range(node)
-
-                    if range.row_start == line then
-                        return find_closest_unnamed_node(node)
-                    end
-                end
-            end
-        end
-
-        return find_closest_unnamed_node(result)
+        return descendant
     end,
 
     get_document_metadata = function(buf, no_trim)
@@ -684,12 +675,22 @@ module.public = {
 module.on_event = function(event)
     if event.split_type[1] == "core.keybinds" then
         if event.split_type[2] == "core.integrations.treesitter.next.heading" then
-            module.public.goto_next_heading()
+            module.public.goto_next_query_match(module.private.heading_query)
         elseif event.split_type[2] == "core.integrations.treesitter.previous.heading" then
-            module.public.goto_previous_heading()
+            module.public.goto_previous_query_match(module.private.heading_query)
+        elseif event.split_type[2] == "core.integrations.treesitter.next.link" then
+            module.public.goto_next_query_match(module.private.link_query)
+        elseif event.split_type[2] == "core.integrations.treesitter.previous.link" then
+            module.public.goto_previous_query_match(module.private.link_query)
         end
     elseif event.split_type[2] == "sync-parsers" then
-        pcall(vim.cmd, "TSInstall! norg")
+        local ok = pcall(vim.cmd, "TSInstall! norg")
+
+        if not ok then
+            vim.notify([[Unable to install norg parser.
+]])
+        end
+
         pcall(vim.cmd, "TSInstall! norg_meta")
     end
 end
@@ -698,6 +699,8 @@ module.events.subscribed = {
     ["core.keybinds"] = {
         ["core.integrations.treesitter.next.heading"] = true,
         ["core.integrations.treesitter.previous.heading"] = true,
+        ["core.integrations.treesitter.next.link"] = true,
+        ["core.integrations.treesitter.previous.link"] = true,
     },
 
     ["core.neorgcmd"] = {

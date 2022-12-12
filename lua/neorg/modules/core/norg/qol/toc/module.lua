@@ -43,23 +43,14 @@ module.load = function()
     -- Add neorgcmd capabilities
     -- All toc commands start with :Neorg toc ...
     module.required["core.neorgcmd"].add_commands_from_table({
-        definitions = {
-            toc = {
-                split = {},
-                inline = {},
-                toqflist = {},
-                close = {},
-            },
-        },
-        data = {
-            toc = {
-                args = 1,
-                subcommands = {
-                    split = { args = 0, name = "toc.split" },
-                    inline = { args = 0, name = "toc.inline" },
-                    toqflist = { args = 0, name = "toc.toqflist" },
-                    close = { args = 0, name = "toc.close" },
-                },
+        toc = {
+            args = 1,
+            condition = "norg",
+            subcommands = {
+                split = { args = 0, name = "toc.split" },
+                inline = { args = 0, name = "toc.inline" },
+                toqflist = { args = 0, name = "toc.toqflist" },
+                close = { args = 0, name = "toc.close" },
             },
         },
     })
@@ -234,7 +225,7 @@ module.public = {
         local result = {
             {
                 text = title,
-                highlight = "TSAnnotation",
+                highlight = "@text.title",
                 level = 1,
             },
             {
@@ -267,7 +258,8 @@ module.public = {
     --- Displays the table of contents to the user
     ---@param split boolean if true will spawn the vertical split on the right hand side
     display_toc = function(split)
-        if module.private.toc_bufnr ~= nil
+        if
+            module.private.toc_bufnr ~= nil
             or (module.private.toc_namespace ~= nil and vim.api.nvim_get_namespaces()["Neorg ToC"])
         then
             log.warn("Toc is already displayed.")

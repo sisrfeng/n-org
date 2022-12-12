@@ -27,10 +27,132 @@ neorg.org_file_entered(false)
 
 -- Extract treesitter utility functions provided by Neorg and nvim-treesitter.ts_utils
 local ts = neorg.modules.get_module("core.integrations.treesitter")
+
 local ts_utils = ts.get_ts_utils()
 
 -- Store all parsed modules in this variable
 local modules = {}
+
+-- Store all parsed keybinds in this variable
+local keybinds = {}
+
+-- Gather information about keybinds
+do
+    local path_to_keybinds = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h")
+        .. "/../lua/neorg/modules/core/keybinds/keybinds.lua"
+    local bufnr = vim.fn.bufadd(path_to_keybinds)
+    vim.fn.bufload(bufnr)
+
+    local keybind_info = {}
+
+    local source = vim.treesitter.get_parser(bufnr, "lua"):parse()[1]:root()
+
+    local query = vim.treesitter.parse_query(
+        "lua",
+        [[
+        (function_call
+            name: (_) @function_name
+            (#eq? @function_name "keybinds.map_event_to_mode")
+            arguments: (arguments
+                (string) @keybind_mode
+                (table_constructor
+                    (field
+                        (table_constructor) @table_constructor))))
+    ]]
+    )
+
+    local subquery = vim.treesitter.parse_query(
+        "lua",
+        [[
+        (comment) @comment
+        (field
+            value: (table_constructor
+                (field
+                    value: (_) @parameter)))]]
+    )
+
+    local comments = {}
+    local modes = {}
+    local parameters = {}
+    -- local mnemonics = {}
+    local line_positions = {}
+    local last_comment_start
+    local last_parameter_start
+
+    local current_mode = nil
+    local current_comments = {}
+    local current_parameters = {}
+
+    local function insert(tbl, value)
+        if tbl[#tbl] == value then
+            return
+        end
+
+        table.insert(tbl, value)
+    end
+
+    local function get_string_content(value)
+        return value:sub(1, 1) == '"' and value:sub(2, -2) or value
+    end
+
+    for id, node in query:iter_captures(source, bufnr) do
+        local capture = query.captures[id]
+        local node_text = ts.get_node_text(node, bufnr)
+
+        if capture == "keybind_mode" then
+            current_mode = get_string_content(node_text)
+        elseif capture == "table_constructor" then
+            for subid, subnode in subquery:iter_captures(node, bufnr) do
+                local subcapture = subquery.captures[subid]
+                local subnode_text = ts.get_node_text(subnode, bufnr)
+
+                if subcapture == "comment" then
+                    if (subnode:range()) - (last_comment_start or (subnode:range())) > 1 then
+                        insert(comments, current_comments)
+                        current_comments = {}
+                    end
+
+                    local stripped_subnode_text = subnode_text:gsub("^%s*%-%-%s*", "")
+
+                    if stripped_subnode_text:sub(1, 1) == "^" and not had_mnemonic then
+                        -- TODO: Implement mnemonics
+                    else
+                        insert(current_comments, stripped_subnode_text)
+                    end
+
+                    last_comment_start = subnode:range()
+                elseif subcapture == "parameter" then
+                    if (subnode:range()) ~= (last_parameter_start or (subnode:range())) then
+                        insert(parameters, current_parameters)
+                        current_parameters = {}
+                        table.insert(modes, current_mode)
+                    end
+
+                    if vim.tbl_isempty(current_parameters) then
+                        table.insert(line_positions, subnode:range() + 1)
+                    end
+
+                    insert(current_parameters, get_string_content(subnode_text))
+                    last_parameter_start = subnode:range()
+                end
+            end
+        end
+    end
+
+    for i = 1, #parameters do
+        keybind_info[parameters[i][2]] = vim.tbl_extend("force", keybind_info[parameters[i][2]] or {}, {
+            [parameters[i][3] or ""] = {
+                keybind = parameters[i][1],
+                -- mnemonic = mnemonics[i],
+                mode = modes[i],
+                comments = comments[i],
+                linenr = line_positions[i],
+            },
+        })
+    end
+
+    keybinds = keybind_info
+end
 
 --- Get the list of every module.lua file in neorg
 --- @return table
@@ -53,7 +175,7 @@ end
 
 --- Get the first comment (at line 0) from a module and get it's content
 --- @param path string
---- @return number, table #Returns the buffer and the table of comment
+--- @return { buf: number, comment: table }? #Returns the buffer and the table of comment
 docgen.get_module_top_comment = function(path)
     local buf = docgen.get_buf_from_file(path)
     local node = ts.get_first_node_recursive("comment", { buf = buf, ft = "lua" })
@@ -79,7 +201,10 @@ docgen.get_module_top_comment = function(path)
     table.remove(comment, 1)
     table.remove(comment, #comment)
 
-    return buf, comment
+    return {
+        buf = buf,
+        comment = comment,
+    }
 end
 
 --- Parses the query from a buffer
@@ -93,9 +218,10 @@ docgen.get_module_queries = function(buf, query)
 end
 
 --- The actual code that generates a md file from a template
---- @param buf number
---- @param path string
---- @param comment table
+--- @param buf? number
+--- @param path? string
+--- @param comment? table
+--- @param main_page? string
 docgen.generate_md_file = function(buf, path, comment, main_page)
     local module = {}
     if not main_page then
@@ -129,7 +255,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
             "",
             "At first configuring Neorg might be rather scary. I have to define what modules I want to use in the `require('neorg').setup()` function?",
             "I don't even know what the default available values are!",
-            "Don't worry, an installation guide is present [here](https://github.com/nvim-neorg/neorg/wiki/Installation), so go ahead and read it!",
+            "Don't worry, an installation guide is present [here](https://github.com/nvim-neorg/neorg#-installation), so go ahead and read it!",
             "",
             "# Contributing to Neorg",
             "",
@@ -168,7 +294,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                 end
 
                 local res = {}
-                for module, config in pairs(modules) do
+                for mod, config in pairs(modules) do
                     if vim.tbl_contains(core_defaults.config.public.enable, config.name) and config.show_module then
                         local insert
                         if config.filename then
@@ -178,7 +304,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                                 .. config.filename
                                 .. ")"
                         else
-                            insert = "- `" .. module .. "`"
+                            insert = "- `" .. mod .. "`"
                         end
                         if config.summary then
                             insert = insert .. " - " .. config.summary
@@ -204,7 +330,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                     return
                 end
 
-                for module, config in pairs(modules) do
+                for mod, config in pairs(modules) do
                     if
                         not config.is_extension
                         and not vim.tbl_contains(core_defaults.config.public.enable, config.name)
@@ -218,7 +344,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                                 .. config.filename
                                 .. ")"
                         else
-                            insert = "- `" .. module .. "`"
+                            insert = "- `" .. mod .. "`"
                         end
                         if config.summary then
                             insert = insert .. " - " .. config.summary
@@ -244,7 +370,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                     return
                 end
 
-                for module, config in pairs(modules) do
+                for mod, config in pairs(modules) do
                     if
                         not config.is_extension
                         and not vim.tbl_contains(core_defaults.config.public.enable, config.name)
@@ -258,7 +384,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                                 .. config.filename
                                 .. ")"
                         else
-                            insert = "- `" .. module .. "`"
+                            insert = "- `" .. mod .. "`"
                         end
                         if config.summary then
                             insert = insert .. " - " .. config.summary
@@ -384,8 +510,8 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                             local identifier = nil
                             local values = {}
 
-                            for id, parsed_config_option in query:iter_captures(public_config, buf) do
-                                local capture = query.captures[id]
+                            for capture_id, parsed_config_option in query:iter_captures(public_config, buf) do
+                                local capture = query.captures[capture_id]
 
                                 if capture == "field" then
                                     indent_level = ts.get_node_range(parsed_config_option).column_start + 1
@@ -400,9 +526,9 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                                     if parsed_config_option:type() ~= "table_constructor" then
                                         if parsed_config_option:type() == "function_definition" then
                                             values = {
-                                                "  Default value: `function" .. ts.get_node_text(
-                                                    parsed_config_option:named_child(0)
-                                                ) .. "`",
+                                                "  Default value: `function"
+                                                    .. ts.get_node_text(parsed_config_option:named_child(0))
+                                                    .. "`",
                                             }
                                         else
                                             values = {
@@ -470,24 +596,40 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
             },
             "## Keybinds",
             function()
-                -- TODO: Add metadata to each keybind in a k-v pair
-                -- with descriptions of the keybind and their default
-                -- values.
-                local keybinds = module.keybinds
+                local results = {}
 
-                if not keybinds or vim.tbl_isempty(keybinds) then
+                local cur_keybinds = module.keybinds
+
+                if not cur_keybinds or vim.tbl_isempty(cur_keybinds) then
                     return {
-                        "This module defines no keybinds."
+                        "This module defines no keybinds.",
                     }
                 end
 
-                local output = {}
+                for _, parameter_types in pairs(cur_keybinds) do
+                    for keybind_param, metadata in pairs(parameter_types) do
+                        table.insert(
+                            results,
+                            string.format(
+                                "- [`%s`](%s)%s %s- %s",
+                                metadata.keybind:gsub("^leader%s+%.%.%s+", "<NeorgLeader> + "):gsub('"', ""),
+                                "https://github.com/nvim-neorg/neorg/blob/main/lua/neorg/modules/core/keybinds/keybinds.lua#L"
+                                    .. tostring(metadata.linenr or 0),
+                                -- metadata.mnemonic and metadata.mnemonic:len() > 0
+                                --         and (" | _" .. metadata.mnemonic:gsub("%u", "**%0**") .. "_"),
+                                "",
+                                keybind_param:len() > 0 and ('(with "' .. keybind_param .. '") ') or "",
+                                metadata.comments and metadata.comments[1] or "*No description*"
+                            )
+                        )
 
-                for _, keybind in ipairs(keybinds) do
-                    table.insert(output, "- `" .. keybind .. "`")
+                        for i = 2, #(metadata.comments or {}) do
+                            table.insert(results, "  " .. metadata.comments[i])
+                        end
+                    end
                 end
 
-                return output
+                return results
             end,
             "",
             "## How to Apply",
@@ -538,13 +680,11 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
             "",
             function()
                 local api = neorg.modules.get_module(module.name)
-
-                -- sort api in order to not shuffle each time we want to commit
-                table.sort(api)
-
                 local results = {}
 
                 if not vim.tbl_isempty(api) then
+                    -- sort api in order to not shuffle each time we want to commit
+                    table.sort(api --[[@as table]])
                     for function_name, item in pairs(api) do
                         if type(item) == "function" then
                             table.insert(results, "- `" .. function_name .. "`")
@@ -785,17 +925,17 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
 
     -- If there are any keybinds for the current module place them in
     if modules["core.keybinds"] then
-        local keybinds = {}
+        local keybinds_for_module = {}
 
-        for keybind in pairs(modules["core.keybinds"].public.keybinds) do
-            if vim.startswith(keybind, module.name) then
-                if not modules[keybind:sub(2 + module.name:len()):match("[^%.]+")] then
-                    table.insert(keybinds, keybind)
+        for keybind, metadata in pairs(keybinds) do
+            if module.name and vim.startswith(keybind, module.name) then
+                if not modules[keybind:sub(1 + module.name:len()):match("[^%.]+")] then
+                    keybinds_for_module[keybind] = metadata
                 end
             end
         end
 
-        module.keybinds = keybinds
+        module.keybinds = keybinds_for_module
     end
 
     local output = {}
@@ -806,10 +946,16 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
         end
 
         for match in line:gmatch("@([%-%.%w]+)") do
+            if not modules[match] then
+                goto continue
+            end
+
             line = line:gsub(
                 "@" .. match:gsub("%p", "%%%1"),
                 "https://github.com/nvim-neorg/neorg/wiki/" .. (modules[match] and modules[match].filename or "")
             )
+
+            ::continue::
         end
 
         return line
@@ -830,7 +976,7 @@ docgen.generate_md_file = function(buf, path, comment, main_page)
                 table.insert(output, item)
             end
         elseif type(item) == "table" then
-            local query = docgen.get_module_queries(buf, item.query)
+            local query = docgen.get_module_queries(buf, --[[@as number]] item.query)
 
             if query then
                 local ret = item.callback(query)
@@ -864,10 +1010,10 @@ local files = docgen.find_modules()
 
 for _ = 1, 2 do
     for _, file in ipairs(files) do
-        local buf, comment = docgen.get_module_top_comment(file)
+        local top_comment = docgen.get_module_top_comment(file)
 
-        if comment then
-            docgen.generate_md_file(buf, file, comment)
+        if top_comment then
+            docgen.generate_md_file(top_comment.buf, file, top_comment.comment)
         end
     end
 end

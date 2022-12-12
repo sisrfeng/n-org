@@ -14,8 +14,14 @@ module.setup = function()
 end
 
 module.config.public = {
-    -- One of "none" or "auto"
+    -- One of "none", "auto" or "empty"
+    -- - None generates no metadata
+    -- - Auto generates metadata if it is not present
+    -- - Empty generates metadata only for new files/buffers.
     type = "none",
+
+    -- Whether updated date field should be automatically updated on save if required
+    update_date = true,
 
     -- How to generate a tabulation inside the `@document.meta` tag
     tab = "",
@@ -40,28 +46,23 @@ module.config.public = {
                 return os.date("%Y-%m-%d")
             end,
         },
+        {
+            "updated",
+            function()
+                return os.date("%Y-%m-%d")
+            end,
+        },
         { "version", require("neorg.config").version },
     },
 }
 
 module.private = {
     buffers = {},
+    listen_event = "none",
 }
 
 ---@class core.norg.esupports.metagen
 module.public = {
-    neorg_commands = {
-        definitions = {
-            ["inject-metadata"] = {},
-        },
-        data = {
-            ["inject-metadata"] = {
-                args = 0,
-                name = "inject-metadata",
-            },
-        },
-    },
-
     --- Returns true if there is a `@document.meta` tag in the current document
     ---@param buf number #The buffer to check in
     ---@return boolean,table #Whether the metadata was present, and the range of the metadata node
@@ -132,7 +133,7 @@ module.public = {
 
     --- Inject the metadata into a buffer
     ---@param buf number #The number of the buffer to inject the metadata into
-    ---@param force boolean #Whether to forcefully override existing metadata
+    ---@param force? boolean #Whether to forcefully override existing metadata
     inject_metadata = function(buf, force)
         local present, range = module.public.is_metadata_present(buf)
         if force or not present then
@@ -140,20 +141,66 @@ module.public = {
             vim.api.nvim_buf_set_lines(buf, range[1], range[2], false, constructed_metadata)
         end
     end,
+
+    update_metadata = function(buf)
+        local present, range = module.public.is_metadata_present(buf)
+        if present then
+            local current_date = os.date("%Y-%m-%d")
+            local meta = vim.api.nvim_buf_get_lines(buf, range[1], range[2], false)
+            for idx, field in ipairs(meta) do
+                local updated_field = field:match("updated: %d+%-%d+%-%d+")
+                if updated_field then
+                    local updated_date = updated_field:match("%d+%-%d+-%d+")
+                    if updated_date ~= current_date then
+                        local new_date = updated_field:gsub("%d+%-%d+-%d+", current_date)
+                        vim.api.nvim_buf_set_lines(buf, idx - 1, idx, false, { new_date })
+                    end
+                end
+            end
+        end
+    end,
 }
 
 module.load = function()
+    neorg.modules.await("core.neorgcmd", function(neorgcmd)
+        neorgcmd.add_commands_from_table({
+            ["inject-metadata"] = {
+                args = 0,
+                name = "inject-metadata",
+                condition = "norg",
+            },
+            ["update-metadata"] = {
+                args = 0,
+                name = "update-metadata",
+                condition = "norg",
+            },
+        })
+    end)
+
     if module.config.public.type == "auto" then
         module.required["core.autocommands"].enable_autocommand("BufEnter")
+        module.private.listen_event = "bufenter"
+    elseif module.config.public.type == "empty" then
+        module.required["core.autocommands"].enable_autocommand("BufNewFile")
+        module.private.listen_event = "bufnewfile"
+    end
+
+    if module.config.public.update_date then
+        vim.api.nvim_create_autocmd("BufWritePre", {
+            pattern = "*.norg",
+            callback = function()
+                module.public.update_metadata(vim.api.nvim_get_current_buf())
+            end,
+            desc = "Update updated date metadata field in norg documents",
+        })
     end
 end
 
 module.on_event = function(event)
     if
-        event.type == "core.autocommands.events.bufenter"
+        event.type == ("core.autocommands.events." .. module.private.listen_event)
         and event.content.norg
         and vim.api.nvim_buf_is_loaded(event.buffer)
-        and module.config.public.type == "auto"
         and vim.api.nvim_buf_get_option(event.buffer, "modifiable")
         and not module.private.buffers[event.buffer]
         and not vim.startswith(event.filehead, "neorg://") -- Do not inject metadata on displays created by neorg by default
@@ -163,16 +210,22 @@ module.on_event = function(event)
     elseif event.type == "core.neorgcmd.events.inject-metadata" then
         module.public.inject_metadata(event.buffer, true)
         module.private.buffers[event.buffer] = true
+    elseif event.type == "core.neorgcmd.events.update-metadata" then
+        module.public.update_metadata(event.buffer)
+        module.private.buffers[event.buffer] = true
     end
 end
 
 module.events.subscribed = {
     ["core.autocommands"] = {
         bufenter = true,
+        bufnewfile = true,
+        bufwritepre = true,
     },
 
     ["core.neorgcmd"] = {
         ["inject-metadata"] = true,
+        ["update-metadata"] = true,
     },
 }
 

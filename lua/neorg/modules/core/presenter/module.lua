@@ -8,6 +8,7 @@
 require("neorg.modules.base")
 
 local module = neorg.modules.create("core.presenter")
+local api = vim.api
 
 module.setup = function()
     return {
@@ -46,19 +47,12 @@ module.load = function()
     keybinds.register_keybinds(module.name, { "next_page", "previous_page", "close" })
     -- Add neorgcmd capabilities
     module.required["core.neorgcmd"].add_commands_from_table({
-        definitions = {
-            presenter = {
-                start = {},
-                close = {},
-            },
-        },
-        data = {
-            presenter = {
-                args = 1,
-                subcommands = {
-                    start = { args = 0, name = "presenter.start" },
-                    close = { args = 0, name = "presenter.close" },
-                },
+        presenter = {
+            args = 1,
+            condition = "norg",
+            subcommands = {
+                start = { args = 0, name = "presenter.start" },
+                close = { args = 0, name = "presenter.close" },
             },
         },
     })
@@ -66,8 +60,9 @@ end
 
 module.config.public = {
     -- Zen mode plugin to use. Currenly suppported:
-    -- `zen-mode` (https://github.com/folke/zen-mode.nvim)
-    -- `truezen` (https://github.com/Pocco81/TrueZen.nvim)
+    --
+    -- - `zen-mode` - https://github.com/folke/zen-mode.nvim
+    -- - `truezen` - https://github.com/Pocco81/TrueZen.nvim
     zen_mode = "",
 }
 
@@ -140,13 +135,13 @@ module.public = {
         local buffer =
             module.required["core.ui"].create_norg_buffer("Norg Presenter", "nosplit", nil, { keybinds = false })
 
-        vim.api.nvim_buf_set_option(buffer, "modifiable", true)
-        vim.api.nvim_buf_set_lines(buffer, 0, -1, false, results[1])
-        vim.api.nvim_buf_call(buffer, function()
+        api.nvim_buf_set_option(buffer, "modifiable", true)
+        api.nvim_buf_set_lines(buffer, 0, -1, false, results[1])
+        api.nvim_buf_call(buffer, function()
             vim.cmd("set scrolloff=999")
         end)
 
-        vim.api.nvim_buf_set_option(buffer, "modifiable", false)
+        api.nvim_buf_set_option(buffer, "modifiable", false)
 
         module.required["core.mode"].set_mode("presenter")
         module.private.buf = buffer
@@ -159,9 +154,9 @@ module.public = {
         end
 
         if vim.tbl_count(module.private.data) == module.private.current_page then
-            vim.api.nvim_buf_set_option(module.private.buf, "modifiable", true)
-            vim.api.nvim_buf_set_lines(module.private.buf, 0, -1, false, { "Press `next` again to close..." })
-            vim.api.nvim_buf_set_option(module.private.buf, "modifiable", false)
+            api.nvim_buf_set_option(module.private.buf, "modifiable", true)
+            api.nvim_buf_set_lines(module.private.buf, 0, -1, false, { "Press `next` again to close..." })
+            api.nvim_buf_set_option(module.private.buf, "modifiable", false)
             module.private.current_page = module.private.current_page + 1
             return
         elseif vim.tbl_count(module.private.data) < module.private.current_page then
@@ -171,9 +166,9 @@ module.public = {
 
         module.private.current_page = module.private.current_page + 1
 
-        vim.api.nvim_buf_set_option(module.private.buf, "modifiable", true)
-        vim.api.nvim_buf_set_lines(module.private.buf, 0, -1, false, module.private.data[module.private.current_page])
-        vim.api.nvim_buf_set_option(module.private.buf, "modifiable", false)
+        api.nvim_buf_set_option(module.private.buf, "modifiable", true)
+        api.nvim_buf_set_lines(module.private.buf, 0, -1, false, module.private.data[module.private.current_page])
+        api.nvim_buf_set_option(module.private.buf, "modifiable", false)
     end,
 
     previous_page = function()
@@ -187,9 +182,9 @@ module.public = {
 
         module.private.current_page = module.private.current_page - 1
 
-        vim.api.nvim_buf_set_option(module.private.buf, "modifiable", true)
-        vim.api.nvim_buf_set_lines(module.private.buf, 0, -1, false, module.private.data[module.private.current_page])
-        vim.api.nvim_buf_set_option(module.private.buf, "modifiable", false)
+        api.nvim_buf_set_option(module.private.buf, "modifiable", true)
+        api.nvim_buf_set_lines(module.private.buf, 0, -1, false, module.private.data[module.private.current_page])
+        api.nvim_buf_set_option(module.private.buf, "modifiable", false)
     end,
 
     close = function()
@@ -211,7 +206,7 @@ module.public = {
             neorg.modules.get_module("core.integrations.zen_mode").toggle()
         end
 
-        vim.api.nvim_buf_delete(module.private.buf, {})
+        api.nvim_buf_delete(module.private.buf, {})
         module.private.data = {}
         module.private.current_page = 1
         module.private.buf = nil

@@ -156,27 +156,19 @@ end
 
 module.load = function()
     module.required["core.neorgcmd"].add_commands_from_table({
-        definitions = {
-            tangle = {
-                ["current-file"] = {},
-                -- directory = {},
-            },
-        },
+        tangle = {
+            args = 1,
+            condition = "norg",
 
-        data = {
-            tangle = {
-                args = 1,
-
-                subcommands = {
-                    ["current-file"] = {
-                        args = 0,
-                        name = "core.tangle.current-file",
-                    },
-                    -- directory = {
-                    --     max_args = 1,
-                    --     name = "core.tangle.directory",
-                    -- }
+            subcommands = {
+                ["current-file"] = {
+                    args = 0,
+                    name = "core.tangle.current-file",
                 },
+                -- directory = {
+                --     max_args = 1,
+                --     name = "core.tangle.directory",
+                -- }
             },
         },
     })
@@ -251,6 +243,15 @@ module.public = {
 
                 if parsed_tag then
                     local file_to_tangle_to = options.languages[parsed_tag.parameters[1]]
+                    local content = parsed_tag.content
+
+                    if parsed_tag.parameters[1] == "norg" then
+                        for i, line in ipairs(content) do
+                            -- remove escape char
+                            local new_line, _ = line:gsub("\\(.?)", "%1")
+                            content[i] = new_line or ""
+                        end
+                    end
 
                     for _, attribute in ipairs(parsed_tag.attributes) do
                         if attribute.name == "tangle.none" then
@@ -266,7 +267,7 @@ module.public = {
 
                     if file_to_tangle_to then
                         tangles[file_to_tangle_to] = tangles[file_to_tangle_to] or {}
-                        vim.list_extend(tangles[file_to_tangle_to], parsed_tag.content)
+                        vim.list_extend(tangles[file_to_tangle_to], content)
                     end
 
                     ::skip_tag::
@@ -287,8 +288,12 @@ module.on_event = function(event)
             return
         end
 
+        local file_count = vim.tbl_count(tangles)
+        local tangled_count = 0
+
         for file, content in pairs(tangles) do
-            vim.loop.fs_open(file, "w", 438, function(err, fd)
+            vim.loop.fs_open(vim.fn.expand(file), "w", 438, function(err, fd)
+                file_count = file_count - 1
                 assert(not err, neorg.lib.lazy_string_concat("Failed to open file '", file, "' for tangling: ", err))
 
                 vim.loop.fs_write(fd, table.concat(content, "\n"), 0, function(werr)
@@ -298,7 +303,19 @@ module.on_event = function(event)
                     )
                 end)
 
-                vim.schedule(neorg.lib.wrap(vim.notify, "Successfully tangled 1 file!"))
+                tangled_count = tangled_count + 1
+                if file_count == 0 then
+                    vim.schedule(
+                        neorg.lib.wrap(
+                            vim.notify,
+                            string.format(
+                                "Successfully tangled %d file%s!",
+                                tangled_count,
+                                tangled_count == 1 and "" or "s"
+                            )
+                        )
+                    )
+                end
             end)
         end
     end

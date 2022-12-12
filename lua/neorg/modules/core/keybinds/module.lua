@@ -1,7 +1,7 @@
 --[[
     File: User-Keybinds
     Title: The Keybinds Module
-	Summary: Module for managing keybindings with Neorg mode support.
+    Summary: Module for managing keybindings with Neorg mode support.
     ---
 
 ### Disabling Default Keybinds
@@ -96,20 +96,18 @@ module.public = {
 
     -- Define neorgcmd autocompletions and commands
     neorg_commands = {
-        definitions = {
-            keybind = {},
-        },
-        data = {
-            keybind = {
-                min_args = 2,
-                name = "core.keybinds.trigger",
+        keybind = {
+            min_args = 2,
+            name = "core.keybinds.trigger",
+
+            complete = {
+                {},
+                {},
             },
         },
     },
 
     version = "0.0.9",
-
-    keybinds = {},
 
     -- Adds a new keybind to the database of known keybinds
     -- @param module_name string #the name of the module that owns the keybind. Make sure it's an absolute path.
@@ -123,7 +121,7 @@ module.public = {
             module.events.defined[keybind_name] = neorg.events.define(module, keybind_name)
 
             -- Define autocompletion for core.neorgcmd
-            module.public.keybinds[keybind_name] = {}
+            table.insert(module.public.neorg_commands.keybind.complete[2], keybind_name)
         end
 
         -- Update core.neorgcmd's internal tables
@@ -144,7 +142,7 @@ module.public = {
                 module.events.defined[keybind_name] = neorg.events.define(module, keybind_name)
 
                 -- Define autocompletion for core.neorgcmd
-                module.public.keybinds[keybind_name] = {}
+                table.insert(module.public.neorg_commands.keybind.complete[2], keybind_name)
             end
         end
 
@@ -166,9 +164,9 @@ module.public = {
             --- Maps a key to a specific Neorg mode
             ---@param neorg_mode string #The Neorg mode to bind to
             ---@param mode string #The Neovim mode to bind to, e.g. `n` or `i` etc.
-            ---@param key string #The lhs value from `:h nvim_buf_set_keymap`
-            ---@param command string|function #The rhs value from `:h nvim_buf_set_keymap`
-            ---@param opts table #The table value from `:h nvim_buf_set_keymap`
+            ---@param key string #The lhs value from `:h vim.keymap.set`
+            ---@param command string|function #The rhs value from `:h vim.keymap.set`
+            ---@param opts table #The table value from `:h vim.keymap.set`
             map = function(neorg_mode, mode, key, command, opts)
                 if neorg_mode ~= "all" and current_mode ~= neorg_mode then
                     return
@@ -189,9 +187,9 @@ module.public = {
             --  for <cmd>Neorg keybind `neorg_mode` `expr`<CR>
             ---@param neorg_mode string #The Neorg mode to bind to
             ---@param mode string #The Neovim mode to bind to, e.g. `n` or `i` etc.
-            ---@param key string #The lhs value from `:h nvim_buf_set_keymap`
+            ---@param key string #The lhs value from `:h vim.keymap.set`
             ---@param expr string #The Neorg event to bind to (e.g. `core.norg.dirman.new.note`)
-            ---@param opts table #The table value from `:h nvim_buf_set_keymap`
+            ---@param opts table #The table value from `:h vim.keymap.set`
             map_event = function(neorg_mode, mode, key, expr, opts)
                 payload.map(neorg_mode, mode, key, "<cmd>Neorg keybind " .. neorg_mode .. " " .. expr .. "<CR>", opts)
             end,
@@ -266,7 +264,7 @@ module.public = {
             --- An advanced wrapper around the map() function, maps several keys if the current neorg mode is the desired one
             ---@param mode string #The neorg mode to bind the keys on
             ---@param keys #table { <neovim_mode> = { { "<key>", "<name-of-keybind>", custom_opts } } } - a table of keybinds
-            ---@param opts #table) - the same parameters that should be passed into vim.api.nvim_set_keymap('s opts parameter
+            ---@param opts #table) - the same parameters that should be passed into vim.keymap.set('s opts parameter
             map_to_mode = function(mode, keys, opts)
                 -- If the keys table is empty then don't bother doing any parsing
                 if vim.tbl_isempty(keys) then
@@ -289,7 +287,7 @@ module.public = {
             --- An advanced wrapper around the map() function, maps several keys if the current neorg mode is the desired one
             ---@param mode string #The neorg mode to bind the keys on
             ---@param keys #table { <neovim_mode> = { { "<key>", "<name-of-keybind>", custom_opts } } } - a table of keybinds
-            ---@param opts #table) - the same parameters that should be passed into vim.api.nvim_set_keymap('s opts parameter
+            ---@param opts #table) - the same parameters that should be passed into vim.keymap.set('s opts parameter
             map_event_to_mode = function(mode, keys, opts)
                 -- If the keys table is empty then don't bother doing any parsing
                 if vim.tbl_isempty(keys) then
@@ -308,11 +306,11 @@ module.public = {
                                 neovim_mode,
                                 keymap[1],
                                 "<cmd>Neorg keybind "
-                                .. mode
-                                .. " "
-                                .. table.concat(vim.list_slice(keymap, 2), " ")
-                                .. "<CR>",
-                                keymap[3] or opts
+                                    .. mode
+                                    .. " "
+                                    .. table.concat(vim.list_slice(keymap, 2), " ")
+                                    .. "<CR>",
+                                opts
                             )
                         end
                     end
@@ -340,7 +338,8 @@ module.public = {
             end
         end, "map", "map_event", "unmap", "remap", "remap_key", "remap_event")
 
-        if module.config.public.default_keybinds
+        if
+            module.config.public.default_keybinds
             and module.config.public.keybind_presets[module.config.public.keybind_preset]
         then
             module.config.public.keybind_presets[module.config.public.keybind_preset](payload)
@@ -362,27 +361,17 @@ module.public = {
                                     if action then
                                         action(buf, mode, key, data.command, data.opts or {})
                                     else
-                                        if type(data.command) == "string" then
-                                            vim.api.nvim_buf_set_keymap(buf, mode, key, data.command, data.opts or {})
-                                        elseif neorg.utils.is_minimum_version(0, 7, 0) then
-                                            vim.api.nvim_buf_set_keymap(
-                                                buf,
-                                                mode,
-                                                key,
-                                                "",
-                                                vim.tbl_extend("force", data.opts or {}, {
-                                                    callback = data.command,
-                                                })
-                                            )
-                                        end
+                                        local opts = data.opts or {}
+                                        opts.buffer = buf
+
+                                        vim.keymap.set(mode, key, data.command, opts)
                                     end
                                 end)
 
                                 if not ok then
                                     log.trace(
                                         string.format(
-                                            "An error occurred when trying to bind key '%s' in mode '%s' in neorg mode '%s' - %s"
-                                            ,
+                                            "An error occurred when trying to bind key '%s' in mode '%s' in neorg mode '%s' - %s",
                                             key,
                                             mode,
                                             current_mode,
@@ -400,19 +389,10 @@ module.public = {
 
     --- Updates the list of known modes and keybinds for easy autocompletion. Invoked automatically during neorg_post_load().
     sync = function()
-        -- Reset all the autocompletions
-        module.public.neorg_commands.definitions.keybind = {}
-
-        -- Grab all the modes
-        local modes = module.required["core.mode"].get_modes()
-
-        -- Set autocompletion for the "all" mode
-        module.public.neorg_commands.definitions.keybind.all = module.public.keybinds
-
-        -- Convert the list of modes into completion entries for core.neorgcmd
-        for _, mode in ipairs(modes) do
-            module.public.neorg_commands.definitions.keybind[mode] = module.public.keybinds
-        end
+        -- Update the first parameter with the new list of modes
+        -- NOTE(vhyrro): Is there a way to prevent copying? Can you "unbind" a reference to a table?
+        module.public.neorg_commands.keybind.complete[1] = vim.deepcopy(module.required["core.mode"].get_modes())
+        table.insert(module.public.neorg_commands.keybind.complete[1], "all")
 
         -- Update core.neorgcmd's internal tables
         module.required["core.neorgcmd"].add_commands_from_table(module.public.neorg_commands)
