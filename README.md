@@ -39,8 +39,8 @@ Your New Life Organization Tool - All in Lua
 
 </div>
 
-Neorg (_Neo_ - new, _org_ - organization) is a tool designed to reimagine organization as you know it.
-Grab some coffee, start writing some notes, let your editor handle the rest.
+Neorg (_Neo_ - new, _org_ - organization) is a tool designed to reimagine重新构想 organization as you know it.
+
 
 ### Why do we need Neorg?
 
